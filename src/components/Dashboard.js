@@ -1,302 +1,232 @@
-// Dashboard.js
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import Chart from "chart.js/auto";
-import "../index.css"; // 🔹 Asegúrate de tener el archivo CSS en esta ruta
-import { useMetrics } from "../hooks/useMetrics";
+import "../index.css";
+import { useNavigate } from "react-router-dom";
+import { API_BASE_URL } from "../config";
 
 export default function Dashboard() {
+  const [metricsData, setMetricsData] = useState(null);
+  const navigate = useNavigate();
+
   const rocRef = useRef(null);
   const prRef = useRef(null);
-  // store Chart instances so we can destroy them on cleanup (avoids "Canvas is already in use" errors)
-  const rocChart = useRef(null);
-  const prChart = useRef(null);
-  // helper to create ROC chart (accepts { labels, values })
-  const createRoc = (data = {}) => {
-    if (!rocRef.current) return;
-    const labels = data.labels ?? [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
-    const values = data.values ?? [0, 0.45, 0.63, 0.75, 0.82, 0.88, 0.91, 0.95, 0.97, 0.99, 1];
-    const ctx = rocRef.current.getContext("2d");
-    if (rocChart.current) {
-      try { rocChart.current.destroy(); } catch (e) { /* ignore */ }
-      rocChart.current = null;
-    }
-    rocChart.current = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [
-          {
-            label: "Curva ROC del modelo",
-            data: values,
-            borderColor: "#26a69a",
-            borderWidth: 2,
-            fill: false,
-            tension: 0.3,
-          },
-          {
-            label: "Clasificador aleatorio",
-            data: labels, // random classifier baseline (y=x)
-            borderColor: "#aaa",
-            borderDash: [5, 5],
-            fill: false,
-            tension: 0.3,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { position: "bottom" } },
-        scales: {
-          x: { title: { display: true, text: "Tasa de Falsos Positivos (FPR)" }, min: 0, max: 1 },
-          y: { title: { display: true, text: "Tasa de Verdaderos Positivos (TPR)" }, min: 0, max: 1 },
-        },
-      },
-    });
-  };
 
-  // helper to create PR chart (accepts { labels, values })
-  const createPr = (data = {}) => {
-    if (!prRef.current) return;
-    const labels = data.labels ?? [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
-    const values = data.values ?? [1, 0.97, 0.95, 0.92, 0.89, 0.87, 0.83, 0.79, 0.74, 0.68, 0.6];
-    const ctx = prRef.current.getContext("2d");
-    if (prChart.current) {
-      try { prChart.current.destroy(); } catch (e) { /* ignore */ }
-      prChart.current = null;
-    }
-    prChart.current = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [
-          {
-            label: "Curva Precision-Recall",
-            data: values,
-            borderColor: "#ff7043",
-            backgroundColor: "rgba(255, 112, 67, 0.2)",
-            fill: true,
-            tension: 0.3,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { position: "bottom" } },
-        scales: {
-          x: { title: { display: true, text: "Recall" }, min: 0, max: 1 },
-          y: { title: { display: true, text: "Precisión" }, min: 0, max: 1 },
-        },
-      },
-    });
-  };
-
+  // 🔹 Cargar métricas desde la API
   useEffect(() => {
-    // create charts (initial empty/default) — we'll re-create when metrics arrive
-    createRoc({ labels: [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1], values: [0,0.45,0.63,0.75,0.82,0.88,0.91,0.95,0.97,0.99,1] });
-    createPr({ labels: [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1], values: [1,0.97,0.95,0.92,0.89,0.87,0.83,0.79,0.74,0.68,0.6] });
-    // cleanup: destroy charts when component unmounts or before effect re-runs
-    return () => {
-      if (rocChart.current) {
-        try { rocChart.current.destroy(); } catch (e) { /* ignore */ }
-        rocChart.current = null;
-      }
-      if (prChart.current) {
-        try { prChart.current.destroy(); } catch (e) { /* ignore */ }
-        prChart.current = null;
-      }
-    };
+    fetch(`${API_BASE_URL}/api/metrics`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.items && data.items.length > 0) {
+          setMetricsData(data.items[0]);
+        }
+      })
+      .catch((err) => console.error("Error al cargar métricas:", err));
   }, []);
 
-  // Use backend metrics (latest) to update charts (enable polling every 5s)
-  const { data: metrics, loading: metricsLoading, error: metricsError } = useMetrics(null, { include_curves: true, pollInterval: 5000 });
-
-  // debug: show loading state in console to help troubleshooting
+  // 🔹 Renderizar gráficas (ROC y Precision-Recall)
   useEffect(() => {
-    if (metricsLoading) console.debug("useMetrics: loading...");
-  }, [metricsLoading]);
+    if (!metricsData) return;
 
-  useEffect(() => {
-    // debug log - show what we received
-    console.debug("Dashboard: metrics changed", metrics);
-    if (!metrics) return;
+    // --- Curva ROC ---
+    const rocCtx = rocRef.current.getContext("2d");
+    if (rocCtx.chart) rocCtx.chart.destroy();
+    rocCtx.chart = new Chart(rocCtx, {
+      type: "line",
+      data: {
+        labels: Array.from({ length: 11 }, (_, i) => i / 10),
+        datasets: [
+          {
+            label: "ROC Curve",
+            data: [
+              { x: 0, y: 0 },
+              { x: 0.1, y: 0.4 },
+              { x: 0.2, y: 0.6 },
+              { x: 0.4, y: 0.75 },
+              { x: 0.6, y: 0.85 },
+              { x: 1, y: 1 },
+            ],
+            borderColor: "#2563eb",
+            backgroundColor: "rgba(37,99,235,0.1)",
+            tension: 0.4,
+            fill: true,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+        },
+        scales: {
+          x: { title: { display: true, text: "False Positive Rate" } },
+          y: { title: { display: true, text: "True Positive Rate" } },
+        },
+      },
+    });
 
-    // the backend may return curves under different keys (Curvas, curves, or nested roc/pr)
-    // common shapes observed from backend:
-    // Curvas.roc_curve.{fpr,tpr} and Curvas.precision_recall_curve.{precision,recall}
-    const rocLabels =
-      metrics?.Curvas?.roc?.labels ??
-      metrics?.curves?.roc?.labels ??
-      metrics?.roc?.labels ??
-      metrics?.Curvas?.roc_curve?.fpr ??
-      metrics?.curves?.roc?.fpr ??
-      null;
-    const rocValues =
-      metrics?.Curvas?.roc?.values ??
-      metrics?.curves?.roc?.values ??
-      metrics?.roc?.values ??
-      metrics?.Curvas?.roc_curve?.tpr ??
-      metrics?.curves?.roc?.tpr ??
-      null;
-    // For PR curve we use recall on x axis and precision as y values when provided
-    const prLabels =
-      metrics?.Curvas?.pr?.labels ??
-      metrics?.curves?.pr?.labels ??
-      metrics?.pr?.labels ??
-      metrics?.Curvas?.precision_recall_curve?.recall ??
-      metrics?.curves?.precision_recall_curve?.recall ??
-      null;
-    const prValues =
-      metrics?.Curvas?.pr?.values ??
-      metrics?.curves?.pr?.values ??
-      metrics?.pr?.values ??
-      metrics?.Curvas?.precision_recall_curve?.precision ??
-      metrics?.curves?.precision_recall_curve?.precision ??
-      null;
+    // --- Curva Precision-Recall ---
+    const prCtx = prRef.current.getContext("2d");
+    if (prCtx.chart) prCtx.chart.destroy();
+    prCtx.chart = new Chart(prCtx, {
+      type: "line",
+      data: {
+        labels: Array.from({ length: 11 }, (_, i) => i / 10),
+        datasets: [
+          {
+            label: "Precision-Recall Curve",
+            data: [
+              { x: 1, y: metricsData.metrics.precision },
+              { x: metricsData.metrics.recall, y: metricsData.metrics.precision },
+              { x: 0, y: 0 },
+            ],
+            borderColor: "#16a34a",
+            backgroundColor: "rgba(22,163,74,0.1)",
+            tension: 0.4,
+            fill: true,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+        },
+        scales: {
+          x: { title: { display: true, text: "Recall" } },
+          y: { title: { display: true, text: "Precision" } },
+        },
+      },
+    });
+  }, [metricsData]);
 
-    if (rocLabels && rocValues) {
-      createRoc({ labels: rocLabels, values: rocValues });
-    }
-    if (prLabels && prValues) {
-      createPr({ labels: prLabels, values: prValues });
-    }
+  if (!metricsData) {
+    return <div className="text-center mt-10">Cargando métricas...</div>;
+  }
 
-    // update metric cards if available in payload
-    try {
-      const precision =
-        metrics.precision ?? metrics.Precision ?? metrics.precisión ?? metrics.precision_score ?? null;
-      const recall = metrics.recall ?? metrics.Recall ?? metrics.recall_score ?? null;
-      const accuracy = metrics.accuracy ?? metrics.Accuracy ?? metrics.acc ?? null;
-      const f1score = metrics.f1_score ?? metrics.f1 ?? metrics.F1 ?? metrics["F1-Score"] ?? null;
-      const auc = metrics.auc_roc ?? metrics.ROC_AUC ?? metrics.ROC_AUC ?? metrics.auc ?? metrics.AUC ?? null;
-      const avgPrecision = metrics.average_precision ?? metrics.ap ?? metrics["Average Precision"] ?? null;
-      if (precision !== null && document.getElementById("precision")) document.getElementById("precision").innerText = `${(precision * 100).toFixed(2)}%`;
-      if (recall !== null && document.getElementById("recall")) document.getElementById("recall").innerText = `${(recall * 100).toFixed(2)}%`;
-      if (accuracy !== null && document.getElementById("accuracy")) document.getElementById("accuracy").innerText = `${(accuracy * 100).toFixed(2)}%`;
-      if (f1score !== null && document.getElementById("f1score")) document.getElementById("f1score").innerText = `${Number(f1score).toFixed(2)}`;
-      if (auc !== null && document.getElementById("aucroc")) document.getElementById("aucroc").innerText = `${Number(auc).toFixed(3)}`;
-      if (avgPrecision !== null && document.getElementById("avgPrecision")) document.getElementById("avgPrecision").innerText = `${Number(avgPrecision).toFixed(3)}`;
-    } catch (e) {
-      // don't crash the dashboard if DOM updates fail
-      console.debug("Dashboard: failed to update metric cards", e);
-    }
-  }, [metrics]);
+  const { model_version, metrics } = metricsData;
 
   return (
     <div className="dashboard-container">
-      {/* === ENCABEZADO === */}
-      <header className="header">
+      {/* Encabezado */}
+      <div className="dashboard-header">
         <div>
-          <h1>Árbol de Decisión</h1>
-          <p>Análisis de rendimiento del modelo de Machine Learning</p>
+          <h1>ÁRBOL DE DECISIONES</h1>
+          <p>
+            Análisis de rendimiento del modelo de Machine Learning. 
+            Versión: {model_version}
+          </p>
         </div>
-
-        <div className="header-right">
-          <button className="btn-historial">Ver Historial</button>
+        <div className="header-buttons">
+        <button onClick={() => navigate("/historial")}>Historial</button>
+        <button onClick={() => navigate("/formulario")} className="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition"> Formulario </button>
         </div>
-      </header>
+      </div>
 
-      {/* === MÉTRICAS === */}
-      <section className="metrics">
+      {/* Tarjetas de métricas */}
+      <div className="metrics-grid">
         <div className="metric-card">
           <h3>Precisión</h3>
-          <p className="metric-value" id="precision">--%</p>
-          <small>Proporción de predicciones positivas correctas</small>
+          <div className="metric-value">
+            {(metrics.precision * 100).toFixed(2)}%
+          </div>
+          <p className="text-sm text-gray-500 mt-1">
+            Proporción de predicciones positivas correctas
+          </p>
         </div>
         <div className="metric-card">
           <h3>Recall</h3>
-          <p className="metric-value" id="recall">--%</p>
-          <small>Proporción de casos positivos identificados</small>
+          <div className="metric-value">
+            {(metrics.recall * 100).toFixed(2)}%
+          </div>
+          <p className="text-sm text-gray-500 mt-1">
+            Proporción de casos positivos identificados
+          </p>
         </div>
         <div className="metric-card">
           <h3>Accuracy</h3>
-          <p className="metric-value" id="accuracy">--%</p>
-          <small>Proporción total de predicciones correctas</small>
+          <div className="metric-value">
+            {(metrics.accuracy * 100).toFixed(2)}%
+          </div>
+          <p className="text-sm text-gray-500 mt-1">
+            Proporción total de predicciones correctas
+          </p>
         </div>
         <div className="metric-card">
           <h3>F1-Score</h3>
-          <p className="metric-value" id="f1score">--</p>
-          <small>Media armónica entre precisión y recall</small>
+          <div className="metric-value">{metrics.f1.toFixed(3)}</div>
+          <p className="text-sm text-gray-500 mt-1">
+            Media armónica entre precisión y recall
+          </p>
         </div>
-      </section>
+      </div>
 
-      {/* === MATRIZ DE CONFUSIÓN === */}
-      <section className="confusion-matrix">
-        <h2>Matriz de Confusión</h2>
-        <div className="matrix-grid" id="confusionMatrix">
-          {/* Renderizar dinámicamente usando la respuesta `metrics` */}
-          {(() => {
-            // soportar varios nombres que pueda devolver el backend
-            const confusion =
-              metrics?.Matriz_de_Confusion ??
-              metrics?.matriz_de_confusion ??
-              metrics?.confusion_matrix ??
-              metrics?.confusionMatrix ??
-              null;
-
-            // formato seguro para mostrar números; si no hay datos, mostramos etiquetas
-            const fmt = (v) => (typeof v === 'number' ? new Intl.NumberFormat().format(v) : '--');
-
-            if (Array.isArray(confusion) && confusion.length >= 2 && Array.isArray(confusion[0]) && Array.isArray(confusion[1])) {
-              const TP = confusion[0][0];
-              const FP = confusion[0][1];
-              const FN = confusion[1][0];
-              const TN = confusion[1][1];
-              return (
-                <>
-                  <div className="matrix-cell">{fmt(TP)}</div>
-                  <div className="matrix-cell">{fmt(FP)}</div>
-                  <div className="matrix-cell">{fmt(FN)}</div>
-                  <div className="matrix-cell">{fmt(TN)}</div>
-                </>
-              );
-            }
-
-            // Fallback: mostrar las etiquetas estáticas si no hay datos
-            return (
-              <>
-                <div className="matrix-cell">TP</div>
-                <div className="matrix-cell">FP</div>
-                <div className="matrix-cell">FN</div>
-                <div className="matrix-cell">TN</div>
-              </>
-            );
-          })()}
+      {/* Matriz de confusión */}
+        <div className="confusion-matrix">
+          <h2 className="section-title">Matriz de Confusión</h2>
+          <div className="matrix-grid">
+            <div className="matrix-card">
+              <span className="matrix-value">{metrics.confusion_matrix[0][0]}</span>
+              <span className="matrix-label">TN</span>
+            </div>
+            <div className="matrix-card">              
+              <span className="matrix-value">{metrics.confusion_matrix[0][1]}</span>
+              <span className="matrix-label">FP</span>
+            </div>
+            <div className="matrix-card">              
+              <span className="matrix-value">{metrics.confusion_matrix[1][0]}</span>
+              <span className="matrix-label">FN</span>
+            </div>
+            <div className="matrix-card">              
+              <span className="matrix-value">{metrics.confusion_matrix[1][1]}</span>
+              <span className="matrix-label">TP</span>
+            </div>
+          </div>
         </div>
-      </section>
 
-      {/* === CURVAS === */}
-      <section className="charts">
+      {/* Gráficas */}
+      <div className="chart-section">
         <div className="chart-card">
-          <h3>Curva ROC</h3>
-          <canvas ref={rocRef} style={{ width: "100%", height: 260 }}></canvas>
+          <h2>Curva ROC</h2>
+          <canvas ref={rocRef}></canvas>
+          <p className="text-sm text-gray-500 mt-2 text-center">
+            Área bajo la curva: {metrics.roc_auc.toFixed(3)}
+          </p>
         </div>
-        <div className="chart-card">
-          <h3>Curva Precision-Recall</h3>
-          <canvas ref={prRef} style={{ width: "100%", height: 260 }}></canvas>
-        </div>
-      </section>
 
-      {/* === RESUMEN === */}
-      <section className="summary">
-        <h2>Resumen de Rendimiento</h2>
-        <div className="summary-grid">
-          <div className="summary-item">
-            <h3>AUC-ROC</h3>
-            <p className="summary-value" id="aucroc">--</p>
-            <small>Área bajo curva ROC</small>
-          </div>
-          <div className="summary-item">
-            <h3>Average Precision</h3>
-            <p className="summary-value" id="avgPrecision">--</p>
-            <small>Área bajo curva PR</small>
-          </div>
-          <div className="summary-item">
-            <h3>Predicciones Correctas</h3>
-            <p className="summary-value" id="predictions">--</p>
-            <small>Total de aciertos</small>
-          </div>
+        <div className="chart-card">
+          <h2>Curva Precision-Recall</h2>
+          <canvas ref={prRef}></canvas>
+          <p className="text-sm text-gray-500 mt-2 text-center">
+            Media de precisión promedio: {metrics.average_precision.toFixed(3)}
+          </p>
+        </div>
+      </div>
+
+      {/* === Resumen de Rendimiento === */}
+      <div className="confusion-matrix">
+        <h2>Resumen de rendimiento</h2>
+      <section className="metrics-grid">
+        <div className="metric-card">
+          <h3>AUC-ROC</h3>
+          <p className="metric-value">{metrics.roc_auc.toFixed(3)}</p>
+          Área bajo curva ROC
+        </div>
+        <div className="metric-card">
+          <h3>Average Precision</h3>
+          <p className="metric-value">{metrics.average_precision.toFixed(3)}</p>
+          Área bajo curva PR
+        </div>
+        <div className="metric-card">
+          <h3>Threshold Óptimo</h3>
+          <p className="metric-value">
+            {metrics.thresholds?.best_f1
+              ? metrics.thresholds.best_f1.toFixed(2)
+              : "--"}
+          </p>
+          Umbral con mejor balance entre precisión y recall
         </div>
       </section>
+      </div>
     </div>
   );
 }

@@ -6,9 +6,11 @@
 // GET  /api/metrics/{run_id}?include_curves=true
 // POST /api/predict
 
-// Por defecto usamos el puerto 8000 (FastAPI/uvicorn suele usar 8000). Puedes sobrescribir con
-// REACT_APP_API_BASE_URL en un archivo .env en la raíz del proyecto.
-const BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:8000";
+// Importamos la URL base desde config.js
+import { API_BASE_URL } from "../config";
+
+// Usamos la variable del servidor remoto por defecto
+const BASE = API_BASE_URL || process.env.REACT_APP_API_BASE_URL || "http://localhost:8000";
 
 async function handleResponse(res) {
   const text = await res.text();
