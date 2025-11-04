@@ -40,18 +40,55 @@ export default function Formulario() {
     setError("");
     setResult(null);
 
+    const payload = {
+      age: Number(formData.age),
+      job: formData.job,
+      marital: formData.marital,
+      education: formData.education,
+      default: formData.default,
+      balance: Number(formData.balance),
+      housing: formData.housing,
+      loan: formData.loan,
+      contact: formData.contact,
+      day: Number(formData.day),
+      month: formData.month,
+      duration: Number(formData.duration),
+      campaign: Number(formData.campaign),
+      pdays: Number(formData.pdays),
+      previous: Number(formData.previous),
+      poutcome: formData.poutcome,
+    };
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/predict`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
-      if (!response.ok) throw new Error("Error en la predicción");
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error("Error en predicción:", errorData);
+        throw new Error("Error en la predicción. Revisa los campos.");
+      }
 
       const data = await response.json();
+      console.log("Respuesta del backend:", data);
       setResult(data);
+
+      // 🔹 Registrar resultado en historial, pero SIN redirigir todavía
+      await fetch(`${API_BASE_URL}/api/metrics`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ts: new Date().toISOString(),
+          metrics: data.metrics || {},
+        }),
+      });
+
+      console.log("✅ Métrica registrada en historial");
     } catch (err) {
+      console.error("❌ Error:", err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -70,13 +107,21 @@ export default function Formulario() {
           </p>
         </div>
         <div className="header-buttons">
-        <button className="primary-button" onClick={() => navigate("/")}>Dashboard</button>
-        <button className="primary-button" onClick={() => navigate("/historial")}>Historial</button>
+          <button className="primary-button" onClick={() => navigate("/")}>
+            Dashboard
+          </button>
+          <button
+            className="primary-button"
+            onClick={() => navigate("/historial")}
+          >
+            Historial
+          </button>
         </div>
       </header>
 
       {/* Formulario */}
       <form className="formulario" onSubmit={handleSubmit}>
+        {/* 🔹 Todos los campos quedan igual que antes */}
         {/* Edad */}
         <div className="form-group">
           <label>Edad:</label>
@@ -174,7 +219,7 @@ export default function Formulario() {
           />
         </div>
 
-        {/* Tiene crédito hipotecario */}
+        {/* Crédito hipotecario */}
         <div className="form-group">
           <label>¿Tiene crédito hipotecario?</label>
           <select
@@ -189,7 +234,7 @@ export default function Formulario() {
           </select>
         </div>
 
-        {/* Tiene préstamo personal */}
+        {/* Préstamo personal */}
         <div className="form-group">
           <label>¿Tiene préstamo personal?</label>
           <select
@@ -263,7 +308,7 @@ export default function Formulario() {
           </select>
         </div>
 
-        {/* Duración de la llamada */}
+        {/* Duración */}
         <div className="form-group">
           <label>Duración de la llamada (segundos):</label>
           <input
@@ -275,7 +320,7 @@ export default function Formulario() {
           />
         </div>
 
-        {/* Número de contactos durante la campaña */}
+        {/* Campaña */}
         <div className="form-group">
           <label>Número de contactos durante la campaña actual:</label>
           <input
@@ -287,7 +332,7 @@ export default function Formulario() {
           />
         </div>
 
-        {/* Días desde el último contacto anterior */}
+        {/* Días previos */}
         <div className="form-group">
           <label>Días desde el último contacto previo:</label>
           <input
@@ -299,7 +344,7 @@ export default function Formulario() {
           />
         </div>
 
-        {/* Número de contactos anteriores */}
+        {/* Contactos previos */}
         <div className="form-group">
           <label>Número de contactos anteriores:</label>
           <input
@@ -311,7 +356,7 @@ export default function Formulario() {
           />
         </div>
 
-        {/* Resultado de la campaña anterior */}
+        {/* Resultado anterior */}
         <div className="form-group">
           <label>Resultado de la campaña anterior:</label>
           <select
@@ -335,12 +380,40 @@ export default function Formulario() {
 
       {/* Resultados */}
       {error && <p className="error-message">❌ {error}</p>}
+
       {result && (
-        <div className="resultado">
-          <h2   >Resultado de la Predicción</h2>
-          <p>
-            {result.prediction === "yes" ? "✅ Candidato para préstamo" : "❌ No candidato para préstamo"}
-          </p>
+        <div className="resultado mt-6">
+          <h2 className="text-xl font-bold mb-2 text-blue-800">
+            Resultado de la Predicción
+          </h2>
+          <div
+            className={`p-4 rounded-2xl shadow-md border ${
+              result.Prediction === "yes"
+                ? "bg-green-100 border-green-400"
+                : "bg-red-100 border-red-400"
+            }`}
+          >
+            <p className="text-lg font-semibold">
+              {result.Prediction === "yes"
+                ? "✅ Candidato para préstamo"
+                : "❌ No candidato para préstamo"}
+            </p>
+
+            {result.Probability_yes !== undefined && (
+              <p className="text-gray-700 mt-2">
+                Probabilidad de aceptación:{" "}
+                <span className="font-bold text-blue-700">
+                  {(result.Probability_yes * 100).toFixed(2)}%
+                </span>
+              </p>
+            )}
+
+            {result.Modelo && (
+              <p className="text-sm text-gray-600 mt-1 italic">
+                Modelo utilizado: {result.Modelo}
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>

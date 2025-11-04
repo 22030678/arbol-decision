@@ -1,30 +1,45 @@
 import React, { useEffect, useState } from "react";
-// Import correcto según tu metrics.js original
-import { listMetrics } from "../api/metrics"; // <- aquí estaba el fallo: no existe getMetrics
 import { useNavigate } from "react-router-dom";
 import "../index.css";
+import { useLocation } from "react-router-dom";
 
 export default function Historial() {
   const [metricsList, setMetricsList] = useState([]);
   const [page, setPage] = useState(1);
   const [limit] = useState(10);
   const [totalPages, setTotalPages] = useState(1);
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const navigate = useNavigate();
 
   const fetchMetrics = async (pageNumber = 1) => {
     setLoading(true);
     setError(null);
+
     try {
-      // listMetrics espera un objeto { limit, page, include_curves }
-      const res = await listMetrics({ limit, page: pageNumber, include_curves: false });
-      // tu endpoint devuelve: { total, page, limit, pages, items: [...] }
-      setMetricsList(res.items ?? []);
-      setTotalPages(res.pages ?? 1);
+      const response = await fetch(
+        `https://bank-marketing-ml-mvc.onrender.com/api/metrics?page=${pageNumber}&limit=${limit}`
+      );
+
+      if (!response.ok) throw new Error("Error en la respuesta del servidor");
+
+      const res = await response.json();
+
+      // 🔹 Validamos que la estructura sea la esperada
+      if (res && Array.isArray(res.items)) {
+        setMetricsList(res.items);
+        setTotalPages(res.pages || 1);
+      } else if (Array.isArray(res)) {
+        // En caso de que devuelva directamente un arreglo
+        setMetricsList(res);
+        setTotalPages(1);
+      } else {
+        setMetricsList([]);
+        setTotalPages(1);
+      }
     } catch (err) {
       console.error("Error al obtener historial:", err);
-      setError(err);
+      setError(err.message);
       setMetricsList([]);
       setTotalPages(1);
     } finally {
@@ -32,10 +47,11 @@ export default function Historial() {
     }
   };
 
-  useEffect(() => {
-    fetchMetrics(page);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page]);
+const location = useLocation();
+
+useEffect(() => {
+  fetchMetrics(page);
+}, [page, location.state?.refresh]);
 
   const getColor = (metric, value) => {
     const thresholds = {
@@ -64,15 +80,24 @@ export default function Historial() {
           </p>
         </div>
         <div className="header-buttons">
-        <button className="view-history-btn" onClick={() => navigate("/")}>Dashboard</button>
-        <button onClick={() => navigate("/formulario")} className="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition">Formulario</button>
-        </div>         
+          <button className="view-history-btn" onClick={() => navigate("/")}>
+            Dashboard
+          </button>
+          <button
+            onClick={() => navigate("/formulario")}
+            className="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition"
+          >
+            Formulario
+          </button>
+        </div>
       </div>
 
       {loading ? (
         <p className="text-center text-gray-600">Cargando historial...</p>
       ) : error ? (
-        <p className="text-center text-red-600">Error cargando historial.</p>
+        <p className="text-center text-red-600">
+          Error cargando historial: {error}
+        </p>
       ) : (
         <>
           <div className="metrics-table-container">
@@ -93,7 +118,7 @@ export default function Historial() {
                   metricsList.map((item) => {
                     const m = item.metrics ?? {};
                     return (
-                      <tr key={item.run_id}>
+                      <tr key={item._id || item.run_id}>
                         <td>{new Date(item.ts).toLocaleString()}</td>
                         <td className={getColor("precision", m.precision)}>
                           {m.precision != null ? m.precision.toFixed(3) : "--"}
@@ -110,8 +135,13 @@ export default function Historial() {
                         <td className={getColor("roc_auc", m.roc_auc)}>
                           {m.roc_auc != null ? m.roc_auc.toFixed(3) : "--"}
                         </td>
-                        <td className={getColor("average_precision", m.average_precision)}>
-                          {m.average_precision != null ? m.average_precision.toFixed(3) : "--"}
+                        <td className={getColor(
+                          "average_precision",
+                          m.average_precision
+                        )}>
+                          {m.average_precision != null
+                            ? m.average_precision.toFixed(3)
+                            : "--"}
                         </td>
                       </tr>
                     );
@@ -125,8 +155,11 @@ export default function Historial() {
             </table>
           </div>
 
-          {/* Paginación (10 por página) */}
-          <div className="pagination" role="navigation" aria-label="Paginación del historial">
+          <div
+            className="pagination"
+            role="navigation"
+            aria-label="Paginación del historial"
+          >
             <button
               className="pagination-btn"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
