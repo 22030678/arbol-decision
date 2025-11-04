@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import "../index.css";
 import { useLocation } from "react-router-dom";
@@ -12,46 +12,44 @@ export default function Historial() {
   const [error, setError] = useState(null);
   const navigate = useNavigate();
 
-  const fetchMetrics = async (pageNumber = 1) => {
-    setLoading(true);
-    setError(null);
+  const fetchMetrics = useCallback(async (pageNumber = 1) => {
+    setLoading(true);
+    setError(null);
 
-    try {
-      const response = await fetch(
-        `https://bank-marketing-ml-mvc.onrender.com/api/metrics?page=${pageNumber}&limit=${limit}`
-      );
+    try {
+      const response = await fetch(
+        `https://bank-marketing-ml-mvc.onrender.com/api/metrics?page=${pageNumber}&limit=${limit}`
+      );
 
-      if (!response.ok) throw new Error("Error en la respuesta del servidor");
+      if (!response.ok) throw new Error("Error en la respuesta del servidor");
 
-      const res = await response.json();
+      const res = await response.json();
 
-      // 🔹 Validamos que la estructura sea la esperada
-      if (res && Array.isArray(res.items)) {
-        setMetricsList(res.items);
-        setTotalPages(res.pages || 1);
-      } else if (Array.isArray(res)) {
-        // En caso de que devuelva directamente un arreglo
-        setMetricsList(res);
-        setTotalPages(1);
-      } else {
-        setMetricsList([]);
-        setTotalPages(1);
-      }
-    } catch (err) {
-      console.error("Error al obtener historial:", err);
-      setError(err.message);
-      setMetricsList([]);
-      setTotalPages(1);
-    } finally {
-      setLoading(false);
-    }
-  };
+      if (res && Array.isArray(res.items)) {
+        setMetricsList(res.items);
+        setTotalPages(res.pages || 1);
+      } else if (Array.isArray(res)) {
+        setMetricsList(res);
+        setTotalPages(1);
+      } else {
+        setMetricsList([]);
+        setTotalPages(1);
+      }
+    } catch (err) {
+      console.error("Error al obtener historial:", err);
+      setError(err.message);
+      setMetricsList([]);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [limit]);
 
 const location = useLocation();
 
 useEffect(() => {
-  fetchMetrics(page);
-}, [page, location.state?.refresh]);
+  fetchMetrics(page);
+}, [page, location.state?.refresh, fetchMetrics]);
 
   const getColor = (metric, value) => {
     const thresholds = {
